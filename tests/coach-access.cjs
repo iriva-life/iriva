@@ -1,0 +1,22 @@
+const ts=require('typescript');
+const fs=require('fs');const vm=require('vm');const assert=require('node:assert/strict');
+let user=null,member={household:'home-a'},owned=null,last;
+const env={DB:{prepare(sql){const q={bind(...args){last={sql,args};return q},async first(){if(sql.includes('FROM members'))return member;if(sql.includes('FROM coach_drafts'))return owned;return null},async all(){return {results:[]}},async run(){return {meta:{changes:1}}}};return q}}};
+const mod={exports:{}};
+const context={module:mod,exports:mod.exports,require:n=>n==='cloudflare:workers'?{env}:{getChatGPTUser:async()=>user},Response,Request,AbortSignal,URL,Date,crypto:require('node:crypto').webcrypto,fetch:()=>{throw new Error('Unexpected network call')}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/coach/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
+const api=mod.exports;
+const post=(b,origin)=>api.POST(new Request('https://iriva.test/api/coach',{method:'POST',headers:{'Content-Type':'application/json',...(origin?{origin}:{})},body:JSON.stringify(b)}));
+(async()=>{
+ assert.equal((await api.GET()).status,401);assert.equal((await post({action:'save'})).status,401);
+ user={userId:'learner-a'};member=null;assert.equal((await api.GET()).status,403);assert.equal((await post({action:'save'})).status,403);
+ member={household:'home-a'};let r=await api.GET();assert.equal(r.status,200);assert.equal((await r.json()).available,false);assert.deepEqual(last.args,['learner-a','home-a']);
+ assert.equal((await post({action:'prepare',story:'My story',consent:true})).status,503);
+ assert.equal((await post({action:'save',topic:'Mine'},'https://attacker.test')).status,403);
+ assert.equal((await post({action:'save',id:'someone-elses-draft',topic:'Mine'})).status,404);
+ await post({action:'delete',id:'someone-elses-draft'});assert.match(last.sql,/owner=\? AND household=\?/);assert.deepEqual(last.args,['someone-elses-draft','learner-a','home-a']);
+ env.OPENAI_API_KEY='fake-key-never-sent';env.COACH_MODEL='test';assert.equal((await post({action:'prepare',story:'Story',consent:false})).status,400);
+ assert.equal((await post({action:'prepare',story:'Story',consent:true})).status,429);
+ assert.equal((await post({action:'save',topic:'x'.repeat(41000)})).status,413);
+ console.log('PASS: authentication, membership, private scope, disconnected AI, cross-origin requests, consent, rate limit and request size.');
+})().catch(e=>{console.error(e);process.exit(1)});

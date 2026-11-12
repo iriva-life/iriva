@@ -1,0 +1,6 @@
+import {env} from 'cloudflare:workers';
+import {getChatGPTUser} from '../../chatgpt-auth';
+import {visibleSession,visibilityArgs} from '../../../lib/session-access';
+import {calendarEvent} from '../../../lib/calendar';
+export const dynamic='force-dynamic';
+export async function GET(req:Request){const u=await getChatGPTUser();if(!u)return Response.json({error:'请先登录。'},{status:401});try{const id=new URL(req.url).searchParams.get('id');if(!id)return Response.json({error:'请选择日程。'},{status:400});const db=env.DB!,m=await db.prepare('SELECT * FROM members WHERE user=?').bind(u.userId).first();if(!m)return new Response('Forbidden',{status:403});const s=await db.prepare(`SELECT s.id,s.title,s.kind,s.at,s.url FROM sessions s WHERE s.id=? AND ${visibleSession()}`).bind(id,...visibilityArgs(m.household,m.role,u.userId)).first();if(!s)return new Response('Not found',{status:404});const ics=calendarEvent(s as {id:string;title:string;kind:string;at:string;url:string});return new Response(ics,{headers:{'Content-Type':'text/calendar; charset=utf-8','Content-Disposition':'attachment; filename="iriva-session.ics"','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})}catch{return Response.json({error:'暂时无法导出日程。'},{status:503})}}

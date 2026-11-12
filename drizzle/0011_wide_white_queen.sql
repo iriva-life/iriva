@@ -1,0 +1,1 @@
+ALTER TABLE `members` ADD `timezone` text DEFAULT '' NOT NULL;

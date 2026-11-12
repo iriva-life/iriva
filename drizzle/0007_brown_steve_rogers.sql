@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `one_pending_per_pair` ON `practice_invites` (`pair`) WHERE status = 'pending';
